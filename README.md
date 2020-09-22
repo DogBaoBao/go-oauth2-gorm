@@ -1,2 +1,11 @@
 # go-oauth2-gorm
-go-oauth2 for gorm v2
+
+# Credits
+
+Based on 
+- https://github.com/go-oauth2/mysql/
+- https://github.com/techknowlogick/go-oauth2-gorm
+
+# Feature
+use gorm v2
+
