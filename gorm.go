@@ -27,6 +27,9 @@ import (
 	"gopkg.in/oauth2.v3"
 	"gopkg.in/oauth2.v3/models"
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -45,7 +48,7 @@ type StoreItem struct {
 }
 
 // NewConfig create mysql configuration instance
-func NewConfig(dsn string, dbType string, tableName string) *Config {
+func NewConfig(dsn string, dbType DBType, tableName string) *Config {
 	return &Config{
 		DSN:         dsn,
 		DBType:      dbType,
@@ -57,28 +60,64 @@ func NewConfig(dsn string, dbType string, tableName string) *Config {
 // Config gorm configuration
 type Config struct {
 	DSN         string
-	DBType      string
+	DBType      DBType
 	TableName   string
 	MaxLifetime time.Duration
 }
 
+type DBType int8
+
+const (
+	MySQL = iota
+	PostgreSQL
+	SQLite
+	SQLServer
+)
+
+var defaultConfig = &gorm.Config{
+	Logger: logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		logger.Config{
+			SlowThreshold: time.Second, // 慢 SQL 阈值
+			LogLevel:      logger.Info, // Log level
+			Colorful:      true,        // 禁用彩色打印
+		},
+	),
+}
+
 // NewStore create mysql store instance,
 func NewStore(config *Config, gcInterval int) *Store {
-	db, err := gorm.Open(mysql.New(mysql.Config{
-		DSN: config.DSN,
-	}), &gorm.Config{
-		Logger: logger.New(
-			log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
-			logger.Config{
-				SlowThreshold: time.Second, // 慢 SQL 阈值
-				LogLevel:      logger.Info, // Log level
-				Colorful:      true,        // 禁用彩色打印
-			},
-		),
-	})
+	var d gorm.Dialector
+	switch config.DBType {
+	case MySQL:
+		d = mysql.New(mysql.Config{
+			DSN: config.DSN,
+		})
+	case PostgreSQL:
+		d = postgres.New(postgres.Config{
+			DSN: config.DSN,
+		})
+	case SQLite:
+		d = sqlite.Open(config.DSN)
+	case SQLServer:
+		d = sqlserver.Open(config.DSN)
+	default:
+		fmt.Println("unsupported databases")
+		return nil
+	}
+	db, err := gorm.Open(d, defaultConfig)
 	if err != nil {
 		panic(err)
 	}
+	// client pool
+	s, err := db.DB()
+	if err != nil {
+		panic(err)
+	}
+	s.SetMaxIdleConns(10)
+	s.SetMaxOpenConns(100)
+	s.SetConnMaxLifetime(time.Hour)
+
 	return NewStoreWithDB(config, db, gcInterval)
 }
 
@@ -137,12 +176,13 @@ func (s *Store) gc() {
 	for range s.ticker.C {
 		now := time.Now().Unix()
 		var count int64
-		if err := s.db.Table(s.tableName).Where("expired_at > ?", now).Count(&count).Error; err != nil {
+		if err := s.db.Table(s.tableName).Where("expired_at <= ?", now).Or("code = ? and access = ? AND refresh = ?", "", "", "").Count(&count).Error; err != nil {
 			s.errorf("[ERROR]:%s\n", err)
 			return
 		}
 		if count > 0 {
-			if err := s.db.Table(s.tableName).Where("expired_at > ?", now).Delete(&StoreItem{}).Error; err != nil {
+			// not soft delete.
+			if err := s.db.Table(s.tableName).Where("expired_at <= ?", now).Or("code = ? and access = ? AND refresh = ?", "", "", "").Unscoped().Delete(&StoreItem{}).Error; err != nil {
 				s.errorf("[ERROR]:%s\n", err)
 			}
 		}
