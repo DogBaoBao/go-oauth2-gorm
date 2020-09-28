@@ -1,19 +1,3 @@
-/*
-Copyright 2020 The go-oauth2-gorm Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package oauth2gorm
 
 import (
@@ -78,9 +62,9 @@ var defaultConfig = &gorm.Config{
 	Logger: logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
-			SlowThreshold: time.Second, // 慢 SQL 阈值
-			LogLevel:      logger.Info, // Log level
-			Colorful:      true,        // 禁用彩色打印
+			SlowThreshold: time.Second, // slow SQL
+			LogLevel:      logger.Info, // log level
+			Colorful:      true,        // color
 		},
 	),
 }
@@ -109,7 +93,7 @@ func NewStore(config *Config, gcInterval int) *Store {
 	if err != nil {
 		panic(err)
 	}
-	// client pool
+	// default client pool
 	s, err := db.DB()
 	if err != nil {
 		panic(err)
@@ -137,7 +121,7 @@ func NewStoreWithDB(config *Config, db *gorm.DB, gcInterval int) *Store {
 	store.ticker = time.NewTicker(time.Second * time.Duration(interval))
 
 	if !db.Migrator().HasTable(store.tableName) {
-		if err := db.Table(store.tableName).Migrator().CreateTable(&StoreItem{}).Error; err != nil {
+		if err := db.Table(store.tableName).Migrator().CreateTable(&StoreItem{}); err != nil {
 			panic(err)
 		}
 	}
@@ -247,9 +231,6 @@ func (s *Store) GetByCode(code string) (oauth2.TokenInfo, error) {
 
 	var item StoreItem
 	if err := s.db.Table(s.tableName).Where("code = ?", code).Find(&item).Error; err != nil {
-		//if gorm.IsRecordNotFoundError(err) {
-		//	return nil, nil
-		//}
 		return nil, err
 	}
 	if item.ID == 0 {
@@ -267,9 +248,6 @@ func (s *Store) GetByAccess(access string) (oauth2.TokenInfo, error) {
 
 	var item StoreItem
 	if err := s.db.Table(s.tableName).Where("access = ?", access).Find(&item).Error; err != nil {
-		//if gorm.IsRecordNotFoundError(err) {
-		//	return nil, nil
-		//}
 		return nil, err
 	}
 	if item.ID == 0 {
@@ -287,9 +265,6 @@ func (s *Store) GetByRefresh(refresh string) (oauth2.TokenInfo, error) {
 
 	var item StoreItem
 	if err := s.db.Table(s.tableName).Where("refresh = ?", refresh).Find(&item).Error; err != nil {
-		//if gorm.IsRecordNotFoundError(err) {
-		//	return nil, nil
-		//}
 		return nil, err
 	}
 	if item.ID == 0 {
